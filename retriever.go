@@ -55,8 +55,6 @@ func main() {
 }
 
 func selectOutput([]string) {
-	//first: get user API key if exists
-	//*** TODO ***
 	userPreferences := getUserPreferences()
 
 	if !userPreferences.Valid {
@@ -102,8 +100,6 @@ func selectOutput([]string) {
 	} else {
 		performDefaultRequest(userPreferences)
 	}
-
-	//get headlines
 }
 
 func getUserPreferences() preferences {
@@ -112,44 +108,55 @@ func getUserPreferences() preferences {
 		// create file -- prompt user for api key
 		reader := bufio.NewReader(os.Stdin)
 
-		for {
-			fmt.Print("Enter API Key: ")
-			apiKey, _ := reader.ReadString('\n')
-			if validateApiKey(apiKey) {
-				//create json and return it
+		fmt.Print("Enter API Key: ")
+		apiKey, _ := reader.ReadString('\n')
+		apiKey = apiKey[:len(apiKey)-1]
+		if validateAPIKey(apiKey) {
+			//get default country
+			fmt.Print("Enter country code: ")
+			country, _ := reader.ReadString('\n')
+			country = country[:len(country)-1]
+			if validateCountryCode(country) {
 				pref := &preferences{
 					APIKey:  apiKey,
-					Country: "gb"}
-				prefJson, _ := json.Marshal(pref)
-				writeToJsonFile(string(prefJson))
-				return *pref
-			} else {
-				fmt.Print("\nInvalid API Key!")
+					Country: country,
+					Valid:   true}
+				prefJSON, _ := json.Marshal(pref)
+				if writeToJSONFile(string(prefJSON)) {
+					fmt.Print("Preferences saved.\n")
+					return *pref
+				}
 				return preferences{
 					Valid: false}
 			}
+			fmt.Print("\nInvalid country code!")
+		} else {
+			fmt.Print("\nInvalid API Key!")
 		}
+		//if we've got to this point, preferences are invalid!
+		return preferences{
+			Valid: false}
 	} else {
-		//preferences file exists so get api key
-		//maybe validate it again to check it still works?
-		//get json object from file
+		//preferences file exists
 		fileData, _ := ioutil.ReadFile("preferences.json")
-		fileJson := preferences{}
-		json.Unmarshal(fileData, &fileJson)
-		return fileJson
+		fileJSON := preferences{}
+		json.Unmarshal(fileData, &fileJSON)
+		return fileJSON
 	}
 }
 
-func validateApiKey(key string) bool {
+func validateAPIKey(key string) bool {
 	if len(key) == 0 {
 		return false
 	}
-	url := fmt.Sprintf(`https://newsapi.org/v2/top-headlines?
-		country=us&
-		apiKey=%d`,
-		key)
+	url := "https://newsapi.org/v2/top-headlines?country=us&apiKey=" + key
 
-	resp, _ := http.Get(url)
+	resp, err := http.Get(url)
+
+	if err != nil {
+		return false
+	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
@@ -158,23 +165,42 @@ func validateApiKey(key string) bool {
 	return false
 }
 
-func writeToJsonFile(json string) {
-	//write to file
+func validateCountryCode(countryCode string) bool {
+	if len(countryCode) != 2 {
+		return false
+	}
+
+	allowedCountries := []string{"ae", "ar", "at", "au", "be", "bg", "br", "ca", "ch", "cn", "co", "cu", "cz", "de",
+		"eg", "fr", "gb", "gr", "hk", "hu", "id", "ie", "il", "in", "it", "jp", "kr", "lt", "lv", "ma", "mx", "my",
+		"ng", "nl", "no", "nz", "ph", "pl", "pt", "ro", "rs", "ru", "sa", "se", "sg", "si", "sk", "th", "tr", "tw",
+		"ua", "us", "ve", "za"}
+
+	for _, co := range allowedCountries {
+		if co == countryCode {
+			return true
+		}
+	}
+	return false
 }
 
-func parseUserArguments() {
-	country := flag.String("country", "gb", `Enter the two-character code for the
-		country whose headlines you wish to search for. Full list of codes...`)
-	flag.Parse()
+func writeToJSONFile(json string) bool {
+	output := []byte(json)
+	err := ioutil.WriteFile("preferences.json", output, 0644)
 
-	if len(*country) > 2 {
-		flag.PrintDefaults()
-		os.Exit(1)
+	if err != nil {
+		return false
 	}
+	return true
 }
 
 func performRequest(userPreferences preferences, url string) {
-	resp, _ := http.Get(url)
+	resp, err := http.Get(url)
+
+	if err != nil {
+		fmt.Print("Error! Could not carry out request: " + err.Error())
+
+	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -189,8 +215,6 @@ func performRequest(userPreferences preferences, url string) {
 }
 
 func parseResponse(responseBytes []byte) string {
-	//parse json string into object
-
 	parsedData := response{}
 	err := json.Unmarshal(responseBytes, &parsedData)
 
@@ -200,7 +224,7 @@ func parseResponse(responseBytes []byte) string {
 
 	outValue := ""
 	for _, s := range parsedData.Articles {
-		outValue += s.Title + "\n"
+		outValue += " - \t" + s.Title + "\n"
 	}
 
 	return outValue
@@ -227,15 +251,7 @@ func performEverythingSearch(parameters everythingRequest, userPreferences prefe
 			}
 		}
 	}
-	// if len(parameters.sources) > 0 {
 
-	// }
-	// if len(parameters.from) > 0 {
-
-	// }
-	// if len(parameters.to) > 0 {
-
-	// }
 	if len(parameters.sortBy) > 0 {
 		for _, srt := range allowedSorts {
 			if srt == parameters.sortBy {
@@ -251,22 +267,13 @@ func performEverythingSearch(parameters everythingRequest, userPreferences prefe
 func fetchHeadlines(parameters topHeadlinesRequest, userPreferences preferences) {
 	headlineString := headlinesEndpoint
 
-	allowedCountries := []string{"ae", "ar", "at", "au", "be", "bg", "br", "ca", "ch", "cn", "co", "cu", "cz", "de",
-		"eg", "fr", "gb", "gr", "hk", "hu", "id", "ie", "il", "in", "it", "jp", "kr", "lt", "lv", "ma", "mx", "my",
-		"ng", "nl", "no", "nz", "ph", "pl", "pt", "ro", "rs", "ru", "sa", "se", "sg", "si", "sk", "th", "tr", "tw",
-		"ua", "us", "ve", "za"}
-
 	allowedCategories := []string{"business", "entertainment", "general", "health", "science", "sports", "technology"}
 
 	if len(parameters.keywords) > 0 {
 		headlineString += "q=" + parameters.keywords
 	}
-	if len(parameters.country) == 2 {
-		for _, co := range allowedCountries {
-			if co == parameters.country {
-				headlineString += "country=" + co + "&"
-			}
-		}
+	if validateCountryCode(parameters.country) {
+		headlineString += "country=" + parameters.country + "&"
 	} else {
 		headlineString += "country=" + userPreferences.Country + "&"
 	}
